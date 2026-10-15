@@ -1,14 +1,17 @@
 """보드라이프 게임 게시판에 새 글이 올라오면 텔레그램으로 알린다.
 
-GitHub Actions가 주기적으로 실행한다. 이미 본 글은 seen.json에 남기고,
-워크플로가 그 파일을 레포에 다시 커밋해 다음 실행이 이어서 비교한다.
+이 Mac의 launchd가 10분마다 실행한다(보드라이프가 클라우드 서버 IP를 403으로 막아
+GitHub Actions에서는 돌릴 수 없다). 이미 본 글은 seen.json에 남긴다.
 seen.json이 없으면(첫 실행) 현재 글을 기록만 하고 알림은 보내지 않는다.
+봇 토큰·chat id는 환경변수가 없으면 macOS 키체인(setup_telegram.py가 저장)에서 읽는다.
 """
 
 import html
 import json
 import os
 import re
+import ssl
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -18,6 +21,10 @@ GAME_ID = os.environ.get("GAME_ID", "15778")
 BOARD_URL = f"https://boardlife.co.kr/game/{GAME_ID}/board"
 SEEN_PATH = Path(__file__).with_name("seen.json")
 SEEN_LIMIT = 500  # 목록이 20개라 넉넉히만 보관
+KEYCHAIN_SERVICE = "boardlife-watch"
+
+# python.org 설치본은 기본 인증서가 없어 macOS 시스템 인증서를 쓴다
+CTX = ssl.create_default_context(cafile="/etc/ssl/cert.pem" if os.path.exists("/etc/ssl/cert.pem") else None)
 
 ROW_RE = re.compile(
     r"<a class='post-row' href='(?P<href>[^']+)'[^>]*?"
@@ -31,7 +38,7 @@ ROW_RE = re.compile(
 
 def fetch(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (boardlife-watch)"})
-    with urllib.request.urlopen(req, timeout=30) as res:
+    with urllib.request.urlopen(req, timeout=30, context=CTX) as res:
         return res.read().decode("utf-8")
 
 
@@ -50,16 +57,25 @@ def parse_posts(page: str) -> list[dict]:
     return posts
 
 
+def secret(name: str) -> str:
+    if os.environ.get(name):
+        return os.environ[name]
+    return subprocess.run(
+        ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", name, "-w"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
 def send_telegram(text: str) -> None:
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    for chat_id in os.environ["TELEGRAM_CHAT_ID"].split(","):
+    token = secret("TELEGRAM_BOT_TOKEN")
+    for chat_id in secret("TELEGRAM_CHAT_ID").split(","):
         data = urllib.parse.urlencode({
             "chat_id": chat_id.strip(),
             "text": text,
             "disable_web_page_preview": "true",
         }).encode()
         urllib.request.urlopen(
-            f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=30
+            f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=30, context=CTX
         ).read()
 
 

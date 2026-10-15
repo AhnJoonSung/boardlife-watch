@@ -1,6 +1,6 @@
-"""텔레그램 봇 토큰과 친구 chat id를 GitHub 시크릿에 등록한다.
+"""텔레그램 봇 토큰과 친구 chat id를 macOS 키체인에 저장한다.
 
-토큰은 화면에 보이지 않게 입력받고, 출력하지 않은 채 바로 `gh secret set`으로 넘긴다.
+토큰은 화면에 보이지 않게 입력받고, 출력하지 않은 채 바로 키체인에 넣는다.
 친구가 봇에 /start를 보낸 뒤 실행해야 chat 목록에 나타난다.
     python3 setup_telegram.py
 """
@@ -12,7 +12,7 @@ import ssl
 import subprocess
 import urllib.request
 
-REPO = "AhnJoonSung/boardlife-watch"
+KEYCHAIN_SERVICE = "boardlife-watch"
 
 # python.org 설치본은 기본 인증서가 없어 macOS 시스템 인증서를 쓴다
 CTX = ssl.create_default_context(cafile="/etc/ssl/cert.pem" if os.path.exists("/etc/ssl/cert.pem") else None)
@@ -24,7 +24,10 @@ def call(token: str, method: str) -> dict:
 
 
 def set_secret(name: str, value: str) -> None:
-    subprocess.run(["gh", "secret", "set", name, "--repo", REPO], input=value.encode(), check=True)
+    subprocess.run(
+        ["security", "add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", name, "-w", value],
+        check=True,
+    )
 
 
 def main() -> None:
@@ -51,7 +54,7 @@ def main() -> None:
 
     set_secret("TELEGRAM_BOT_TOKEN", token)
     set_secret("TELEGRAM_CHAT_ID", chat_ids)
-    print("시크릿 2개 등록 완료.")
+    print("키체인에 저장 완료. 이제 10분마다 새 글을 확인한다.")
 
 
 if __name__ == "__main__":
