@@ -1,0 +1,38 @@
+name: boardlife-watch
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # GitHub 사정으로 실제로는 몇 분씩 늦게 돌 수 있다
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: boardlife-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check for new posts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python watch.py
+
+      - name: Save seen posts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add seen.json
+          git diff --cached --quiet || git commit -m "chore: update seen posts"
+          git push
